@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>오탐 확인</title>
+<style>
+  :root { --ink: #10263D; --soft: #4C5E70; --tide: #0F5FA8; --rose: #C2255C; --mist: #EDF4F7; --line: #CFDDE4; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--mist); color: var(--ink); font: 16px/1.5 "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; word-break: keep-all; }
+  header { position: sticky; top: 0; z-index: 2; padding: 12px 16px; background: #fff; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 21px; }
+  header p { margin: 2px 0 8px; color: var(--soft); font-size: 15px; }
+  progress { display: block; width: 100%; height: 8px; accent-color: var(--tide); }
+  #count { margin: 4px 0 0; font-size: 14px; font-weight: 600; }
+  main { max-width: 1240px; margin: 0 auto; padding: 16px 16px 96px; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .card { position: relative; display: block; width: 100%; padding: 0; border: 3px solid transparent; background: #fff; cursor: pointer; text-align: left; }
+  .card img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: #DDE8ED; }
+  .card span { display: block; padding: 5px 8px; font-size: 13.5px; font-weight: 600; color: var(--soft); }
+  .card[aria-pressed="true"] { border-color: var(--rose); }
+  .card[aria-pressed="true"] span { background: var(--rose); color: #fff; }
+  .card:focus-visible, button:focus-visible { outline: 3px solid var(--tide); outline-offset: 2px; }
+  footer { position: fixed; right: 0; bottom: 0; left: 0; display: flex; gap: 12px; align-items: center; justify-content: flex-end; padding: 12px 16px; background: #fff; border-top: 1px solid var(--line); }
+  #status { margin-right: auto; color: var(--soft); font-size: 14px; }
+  #done, #back { min-height: 46px; padding: 8px 18px; border: 0; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer; }
+  #done { background: var(--tide); color: #fff; }
+  #back { background: var(--mist); color: var(--ink); }
+  #back:disabled { visibility: hidden; }
+  #finished { padding: 32px 0; font-size: 18px; }
+  code { padding: 2px 6px; background: #fff; font-size: 15px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI가 잘못 찾은 사진 확인</h1>
+  <p>계단, 턱, 경사로가 실제로 보이는 사진만 누르세요. 애매하면 누르세요.</p>
+  <progress id="bar" value="0" max="1"></progress>
+  <p id="count"></p>
+</header>
+<main>
+  <div id="grid"></div>
+  <div id="finished" hidden>모두 확인했습니다. 터미널에서 <code>Ctrl + C</code>를 누른 뒤 <code>build</code> 명령을 실행하세요.</div>
+</main>
+<footer>
+  <span id="status" role="status"></span>
+  <button id="back" type="button">이전</button>
+  <button id="done" type="button">이 화면 확인 완료</button>
+</footer>
+<script>
+const PAGE_SIZE = 24;
+const LABEL = { stairs: "계단", curb: "턱", ramp: "경사로" };
+const $ = (id) => document.getElementById(id);
+let items = [], decisions = {}, page = 0;
+
+function pageItems() { return items.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE); }
+function pageCount() { return Math.ceil(items.length / PAGE_SIZE); }
+
+function render() {
+  const finished = page >= pageCount();
+  $("finished").hidden = !finished;
+  $("done").hidden = finished;
+  $("back").disabled = page === 0;
+  $("grid").replaceChildren(...(finished ? [] : pageItems().map((item) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "card";
+    card.dataset.file = item.file;
+    const pressed = decisions[item.file] === "obstacle";
+    card.setAttribute("aria-pressed", pressed);
+    const image = document.createElement("img");
+    image.src = `/crops/${encodeURIComponent(item.file)}`;
+    image.alt = `AI가 ${LABEL[item.class] ?? item.class}(이)라고 한 부분`;
+    const text = document.createElement("span");
+    text.textContent = pressed ? "진짜 장애물 있음" : `AI 판단: ${LABEL[item.class] ?? item.class}`;
+    card.append(image, text);
+    card.addEventListener("click", () => {
+      const on = card.getAttribute("aria-pressed") !== "true";
+      card.setAttribute("aria-pressed", on);
+      text.textContent = on ? "진짜 장애물 있음" : `AI 판단: ${LABEL[item.class] ?? item.class}`;
+    });
+    return card;
+  })));
+  const reviewed = items.filter((item) => decisions[item.file]).length;
+  $("bar").max = items.length || 1;
+  $("bar").value = reviewed;
+  $("count").textContent = `${reviewed} / ${items.length}개 확인`;
+  scrollTo(0, 0);
+}
+
+async function savePage() {
+  const changes = {};
+  document.querySelectorAll(".card").forEach((card) => {
+    changes[card.dataset.file] = card.getAttribute("aria-pressed") === "true" ? "obstacle" : "negative";
+  });
+  $("done").disabled = true;
+  $("status").textContent = "저장 중";
+  try {
+    const res = await fetch("/save", { method: "POST", body: JSON.stringify(changes) });
+    if (!res.ok) throw new Error(res.status);
+    Object.assign(decisions, changes);
+    page += 1;
+    $("status").textContent = "저장했습니다";
+    render();
+  } catch (err) {
+    $("status").textContent = "저장하지 못했습니다. 터미널의 review 명령이 실행 중인지 확인하세요.";
+  } finally {
+    $("done").disabled = false;
+  }
+}
+
+$("done").addEventListener("click", savePage);
+$("back").addEventListener("click", () => { page -= 1; render(); });
+
+fetch("/items").then((res) => res.json()).then((data) => {
+  items = data.items;
+  decisions = data.decisions;
+  const first = items.findIndex((item) => !decisions[item.file]);
+  page = first === -1 ? pageCount() : Math.floor(first / PAGE_SIZE);
+  render();
+});
+</script>
+</body>
+</html>

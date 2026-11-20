@@ -1,0 +1,7 @@
+image_id,class,conf,lat,lon,source
+sample_001,stairs,0.91,35.1172,129.0381,ai
+sample_002,stairs,0.86,35.1178,129.0372,ai
+sample_003,curb,0.74,35.1165,129.0388,ai
+sample_004,curb,0.62,35.1181,129.0366,survey
+sample_005,ramp,0.80,35.1169,129.0379,ai
+sample_006,stairs,0.95,35.1190,129.0360,survey

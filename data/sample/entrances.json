@@ -1,0 +1,20 @@
+[
+  {
+    "name": "(예시) 초량역 엘리베이터 출구",
+    "type": "subway_elevator",
+    "lat": 35.1166,
+    "lon": 129.0390,
+    "note": "샘플 데이터 – 실제 위치 아님",
+    "source": "sample",
+    "checked_at": "2026-10-24"
+  },
+  {
+    "name": "(예시) 소아과 건물 후문 경사로",
+    "type": "ramp_entrance",
+    "lat": 35.1186,
+    "lon": 129.0364,
+    "note": "샘플 데이터 – 실제 위치 아님",
+    "source": "sample",
+    "checked_at": "2026-10-24"
+  }
+]

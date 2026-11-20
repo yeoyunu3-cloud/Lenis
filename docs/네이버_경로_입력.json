@@ -1,0 +1,26 @@
+[
+  {
+    "name": "초량6동 주민센터 → 새부산병원",
+    "profile": "stroller",
+    "start": [35.120039, 129.0345155],
+    "end": [35.118028, 129.039297],
+    "naver_walk": { "length_m": null, "stairs": null, "waypoints": [] },
+    "naver_no_stairs": { "length_m": null, "stairs": null, "waypoints": [] }
+  },
+  {
+    "name": "부산역 → 초량6동 주민센터",
+    "profile": "tourist",
+    "start": [35.1157262, 129.0399028],
+    "end": [35.120039, 129.0345155],
+    "naver_walk": { "length_m": null, "stairs": null, "waypoints": [] },
+    "naver_no_stairs": { "length_m": null, "stairs": null, "waypoints": [] }
+  },
+  {
+    "name": "부산역 → 이바구캠프",
+    "profile": "stroller",
+    "start": [35.1157262, 129.0399028],
+    "end": [35.1191555, 129.028386],
+    "naver_walk": { "length_m": null, "stairs": null, "waypoints": [] },
+    "naver_no_stairs": { "length_m": null, "stairs": null, "waypoints": [] }
+  }
+]

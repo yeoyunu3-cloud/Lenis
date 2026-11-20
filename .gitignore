@@ -1,0 +1,18 @@
+data/raw/
+data/processed/
+__pycache__/
+*.pt
+.venv/
+.DS_Store
+cache/
+배포_로그.txt
+배포_주소.txt
+# 이 서비스와 무관한 작업 폴더
+rise-intro/
+pain-preview/
+remotion-skills/
+.claude/
+# 학습·탐지 기록 (용량이 크고 실행할 때마다 바뀜)
+ai/runs/
+ai/학습_로그.txt
+ai/탐지_로그.txt

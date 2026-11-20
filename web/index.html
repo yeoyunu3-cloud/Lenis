@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>편한길로</title>
+  <meta name="description" content="부산의 경사와 계단을 고려해 나에게 편한 길을 찾아 주는 서비스">
+  <meta name="theme-color" content="#0F5FA8">
+  <!-- 휴대폰 홈 화면에 앱처럼 설치 -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="편한길로">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+  <!-- 지도 라이브러리 (Leaflet). 지도 스타일은 이 CSS가 기본으로 잡아 줌 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-step="search">
+
+  <!-- ① 머리글 -->
+  <header id="header">
+    <h1>편한길로</h1>
+    <p>가장 빠른 길이 아니라, 나에게 가장 편한 길</p>
+  </header>
+
+  <main>
+    <!-- 지도: 경로 선, 장애물 점, 출입구 표시 -->
+    <section id="map-panel" aria-label="지도">
+      <div id="map"></div>
+      <div id="map-legend" aria-label="장애물 정보 출처">
+        <span class="legend-item" data-source="steep">가파른 구간</span>
+        <span class="legend-item" data-source="osm">OSM 계단</span>
+        <span class="legend-item" data-source="ai">AI 추정</span>
+        <span class="legend-item" data-source="survey">현장 확인</span>
+        <span class="legend-item" data-source="report">제보</span>
+      </div>
+    </section>
+
+    <div id="sheet">
+      <!-- ② 검색: 이동 유형 → 출발·도착 -->
+      <section id="search-panel" class="panel">
+        <h2>무엇과 함께 가나요?</h2>
+        <div id="profile-list" class="profile-list"></div>
+
+        <h2>어디로 가나요?</h2>
+        <div id="trip-list" aria-label="추천 구간"></div>
+        <datalist id="place-list"></datalist>
+        <form id="route-form">
+          <label>출발
+            <input id="start-input" name="start" list="place-list" placeholder="장소 이름 입력 또는 지도 누르기" autocomplete="off" required>
+          </label>
+          <label>도착
+            <input id="end-input" name="end" list="place-list" placeholder="장소 이름 입력 또는 지도 누르기" autocomplete="off" required>
+          </label>
+          <p id="search-status" role="alert"></p>
+          <button type="submit" id="search-btn">길 비교하기</button>
+        </form>
+      </section>
+
+      <!-- ③ 경로 비교: 경로 2~3개 카드 -->
+      <section id="result-panel" class="panel">
+        <h2>길 비교</h2>
+        <div id="result-profile-list" class="profile-list"></div>
+        <p id="status" role="status">출발지와 도착지를 고르면 길을 비교해 드려요.</p>
+        <p id="recommendation" hidden></p>
+        <ul id="route-list"></ul>
+        <button type="button" id="reverse-btn" hidden>돌아오는 길 보기</button>
+        <p id="slope-note" hidden>경사는 30m 간격 고도 자료로 추정한 값이라 실제와 다를 수 있어요.</p>
+      </section>
+
+      <!-- ④ 출입구 안내: 도착지 근처에서 들어갈 수 있는 입구 -->
+      <section id="entrance-panel" class="panel">
+        <h2>들어갈 수 있는 출입구</h2>
+        <p id="entrance-empty">도착지 300m 안에 확인된 출입구가 없어요.</p>
+        <ul id="entrance-list"></ul>
+      </section>
+
+      <!-- ⑤ 통과 기록·제보 -->
+      <section id="report-panel" class="panel">
+        <h2>지나가 보셨나요?</h2>
+        <form id="report-form">
+          <fieldset>
+            <legend>어땠나요?</legend>
+            <label><input type="radio" name="kind" value="passed" checked> 잘 지나갔어요</label>
+            <label><input type="radio" name="kind" value="blocked"> 못 지나갔어요</label>
+            <label><input type="radio" name="kind" value="obstacle"> 장애물이 있어요</label>
+            <label><input type="radio" name="kind" value="construction"> 공사 중이에요</label>
+          </fieldset>
+          <label>장애물 종류
+            <select name="obstacle">
+              <option value="">선택 안 함</option>
+              <option value="stairs">계단</option>
+              <option value="curb">턱</option>
+              <option value="narrow">좁은 보도</option>
+              <option value="etc">기타</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" name="needed_help"> 도움이 필요했어요</label>
+          <label>메모 <textarea name="memo" rows="2"></textarea></label>
+          <p id="report-location">지도를 눌러 제보할 위치를 고르세요.</p>
+          <button type="submit" id="report-btn">제보 보내기</button>
+          <p id="report-status" role="status"></p>
+        </form>
+      </section>
+
+      <footer id="footer">
+        <p>지도 데이터 © OpenStreetMap 기여자. 거리 사진 Mapillary 기여자 (CC BY-SA 4.0).</p>
+        <p>고도 FABDEM V1-2 (Hawker et al., 2022, CC BY-NC-SA 4.0). FABDEM is produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.</p>
+      </footer>
+    </div>
+  </main>
+
+  <nav id="step-nav" aria-label="화면 이동">
+    <button type="button" data-step="search">길 찾기</button>
+    <button type="button" data-step="result">길 비교</button>
+    <button type="button" data-step="entrance">출입구</button>
+    <button type="button" data-step="report">제보</button>
+  </nav>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
