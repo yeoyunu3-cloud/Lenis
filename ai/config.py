@@ -33,7 +33,8 @@ CANDIDATES = {
 }
 MAX_PER_CLASS = 2
 # 사진이 너무 많은 데이터셋은 줄인다 (학습 시간·클래스 균형)
-MAX_IMAGES_PER_DATASET = {}   # v2: 4000장 제한 없이 전부 사용
+# v4: AI Hub 계단 사진은 계단을 가까이 찍어 상자가 사진 전체인 경우가 많다. 너무 많으면 모델이 큰 상자만 배우므로 줄인다.
+MAX_IMAGES_PER_DATASET = {"aihub_stairs": 4000}
 
 # 학습
 MODEL = "yolo11n.pt"

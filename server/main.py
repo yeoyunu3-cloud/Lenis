@@ -6,7 +6,8 @@ API 목록
   GET  /api/obstacles              지도에 표시할 장애물
   GET  /api/entrances?lat=&lon=    목적지 근처 출입구
   POST /api/reports                통과 기록·제보 저장
-  GET  /api/reports                제보 목록
+  GET  /api/reports                제보 목록 (이 노트북에서만)
+  POST /api/reports/{id}/review    제보 승인·거절 (이 노트북에서만) → 화면: /admin.html
 """
 import json
 import math
@@ -18,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import reports
+from area import BUSAN_BOUNDS, in_busan
 import routing
 from profiles import ACTIVE_PROFILES, DEFAULT_PROFILE, PROFILES
 
@@ -29,7 +31,7 @@ ENTRANCE_FILES = (
     else [DATA / "processed" / "entrances.json", DATA / "processed" / "osm_ramp_entrances.json"]
 )
 
-app = FastAPI(title="편한길로 API")
+app = FastAPI(title="Lenis API")
 
 
 class RouteRequest(BaseModel):
@@ -39,8 +41,8 @@ class RouteRequest(BaseModel):
 
 
 class Report(BaseModel):
-    lat: float = Field(ge=34.9, le=35.4)     # 부산 범위 밖의 제보는 받지 않는다
-    lon: float = Field(ge=128.7, le=129.4)
+    lat: float = Field(ge=BUSAN_BOUNDS[1], le=BUSAN_BOUNDS[3])     # 부산 범위 밖의 제보는 받지 않는다
+    lon: float = Field(ge=BUSAN_BOUNDS[0], le=BUSAN_BOUNDS[2])
     profile: str = Field(max_length=20)
     kind: Literal["passed", "blocked", "obstacle", "construction"]
     obstacle: Optional[str] = Field(None, max_length=20)   # stairs / curb / narrow / etc
@@ -58,7 +60,18 @@ def get_profiles():
 def post_route(req: RouteRequest):
     if req.profile not in ACTIVE_PROFILES:
         raise HTTPException(400, f"알 수 없는 사용자 유형: {req.profile}")
-    return {"profile": req.profile, "routes": routing.find_routes(req.start, req.end, req.profile)}
+    if not (in_busan(*req.start) and in_busan(*req.end)):
+        raise HTTPException(400, "부산 안의 출발지와 도착지만 안내해요")
+    try:
+        routes = routing.find_routes(req.start, req.end, req.profile)
+    except routing.TooFar as e:
+        raise HTTPException(400, str(e))
+    return {"profile": req.profile, "routes": routes}
+
+
+@app.get("/api/stats")
+def get_stats():
+    return routing.stats()
 
 
 @app.get("/api/obstacles")
@@ -84,12 +97,34 @@ def post_report(report: Report):
     return reports.add_report(report.model_dump())
 
 
+def local_only(request: Request):
+    # 제보에는 위치와 메모가 들어 있으므로 외부 주소(cloudflared)로 들어온 요청은 막는다
+    if "cf-connecting-ip" in request.headers or request.client.host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(403, "제보 관리는 이 노트북에서만 할 수 있습니다")
+
+
 @app.get("/api/reports")
 def get_reports(request: Request):
-    # 제보에는 위치와 메모가 들어 있으므로 외부 주소(cloudflared)로 들어온 요청에는 보여 주지 않는다
-    if "cf-connecting-ip" in request.headers:
-        raise HTTPException(403, "제보 목록은 이 노트북에서만 볼 수 있습니다")
-    return reports.load_reports()
+    local_only(request)
+    return sorted(reports.load_reports(), key=lambda r: (r["status"] != "pending", r["created_at"]), reverse=False)
+
+
+class Review(BaseModel):
+    status: Literal["pending", "approved", "rejected"]
+    type: Optional[str] = None      # 관리자가 고친 종류
+
+
+@app.post("/api/reports/{report_id}/review")
+def post_review(report_id: str, review: Review, request: Request):
+    local_only(request)
+    try:
+        report = reports.review(report_id, review.status, review.type)
+    except KeyError:
+        raise HTTPException(404, "없는 제보입니다")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    routing.refresh_reports()
+    return report
 
 
 # 화면(web/) 제공 — API 아래에 둬야 /api가 먼저 잡힌다

@@ -58,13 +58,19 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 브라우저에서 http://localhost:8000 접속.
-처음 경로를 계산할 때 OpenStreetMap 길 데이터를 내려받아 `data/processed/`에 저장합니다. 이후에는 저장한 파일을 씁니다.
+서비스 지역은 부산광역시 전체입니다 (`server/area.py`). 처음 경로를 계산할 때 부산 전체 보행 도로망(OpenStreetMap)을 내려받고(약 2분), 경사·장애물을 계산해 `data/processed/walk_graph_busan_ready.pkl`에 저장합니다. 이후에는 저장한 파일을 씁니다. 걸어서 갈 거리(직선 10km 이내)만 안내합니다.
 
-고도 자료는 `data/raw/dem/`에 넣습니다. 없으면 경사를 "정보 없음"으로 표시합니다.
+고도 자료는 `data/raw/dem/`에 넣습니다. 부산은 FABDEM 도엽 4장에 걸쳐 있어서, 받은 뒤 한 장으로 합칩니다. 없으면 경사를 "정보 없음"으로 표시합니다.
 ```bash
 mkdir -p ../data/raw/dem
-curl -L -o ../data/raw/dem/fabdem_n35_e129.tif https://huggingface.co/buckets/links-ads/fabdem/resolve/tiles/N30E120-N40E130_FABDEM_V1-2/N35E129_FABDEM_V1-2.tif
+for t in N34E128 N34E129 N35E128 N35E129; do
+  f=$(echo $t | tr 'NE' 'ne' | sed 's/\(n[0-9]*\)\(e[0-9]*\)/fabdem_\1_\2.tif/')
+  curl -L -o ../data/raw/dem/$f https://huggingface.co/buckets/links-ads/fabdem/resolve/tiles/N30E120-N40E130_FABDEM_V1-2/${t}_FABDEM_V1-2.tif
+done
+python build_dem.py      # → data/raw/dem/fabdem_busan.tif
 ```
+
+장소 검색 목록(`web/places.json`, 부산 전체 OSM 장소)은 `python build_places.py`로 다시 만듭니다.
 
 화면만 가짜 데이터로 시험하려면 `USE_SAMPLE_DATA=1 uvicorn main:app --reload`로 실행합니다. 실제 경로 결과에는 샘플을 쓰지 않습니다.
 
@@ -99,7 +105,7 @@ python 08_busan_test.py eval
 
 ## 아직 정해지지 않은 것 (TODO)
 
-- [ ] 조사 생활권 (지금 코드의 기본값은 초량동 근처 예시 좌표 → `ai/config.py`, `server/routing.py`)
+- [x] 서비스 지역: 부산광역시 전체 (`server/area.py`)
 - [ ] Mapillary에 해당 지역 사진이 충분한지 확인
 - [ ] 더 정밀한 고도 자료로 교체 (지금은 FABDEM 30m: 짧은 급경사는 실제보다 낮게 나올 수 있음)
 - [ ] 출입구 데이터 (엘리베이터 출구, 경사로 출입구) → `data/processed/entrances.json`에 같은 형식으로 수집

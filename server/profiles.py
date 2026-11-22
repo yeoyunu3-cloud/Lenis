@@ -17,7 +17,7 @@ PROFILES = {
     "stroller": {
         "label": "유아차",
         "speed_mps": 1.0,
-        "obstacle_penalty": {"stairs": None, "curb": 3.0},
+        "obstacle_penalty": {"stairs": None, "curb": 3.0, "blocked": None},
         "ai_penalty": {"stairs": 10.0, "curb": 2.0},
         "grade_penalty": {"soft": 2.0, "hard": 4.0},
         "downhill_factor": 0.8,
@@ -25,7 +25,7 @@ PROFILES = {
     "tourist": {
         "label": "여행용 캐리어",
         "speed_mps": 1.0,
-        "obstacle_penalty": {"stairs": 10.0, "curb": 1.5},
+        "obstacle_penalty": {"stairs": 10.0, "curb": 1.5, "blocked": None},
         "ai_penalty": {"stairs": 3.0, "curb": 1.2},
         "grade_penalty": {"soft": 1.5, "hard": 3.0},
         "downhill_factor": 0.5,

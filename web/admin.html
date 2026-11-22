@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Lenis 제보 정리</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap">
+  <style>
+    /* 관리자용 제보 검토 화면. 이 노트북(localhost)에서만 동작한다. 색은 style.css와 같다 */
+    :root { --brand:#3182F6; --brand-soft:#E8F3FF; --ink:#191F28; --muted:#8B95A1; --line:#E5E8EB; --surface:#FFF; --bg:#F2F4F6; --up:#F04452; --down:#FF8A3D; --ok:#03B26C; }
+    @media (prefers-color-scheme: dark) { :root { --brand-soft:#1C2B44; --ink:#F9FAFB; --muted:#9E9EA4; --line:#2E2E38; --surface:#202027; --bg:#17171C; --up:#F66570; --down:#FFA05C; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 "Noto Sans KR", system-ui, sans-serif; letter-spacing: -0.02em; }
+    main { max-width: 720px; margin: 0 auto; padding: 28px 20px 60px; }
+    h1 { margin: 0 0 4px; font-size: 26px; }
+    .sub { margin: 0 0 18px; color: var(--muted); }
+    .filters { display: flex; gap: 8px; margin-bottom: 16px; }
+    .filters button { padding: 7px 14px; border: 1.5px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 700; cursor: pointer; }
+    .filters button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--surface); }
+    .card { display: grid; gap: 10px; margin-bottom: 12px; padding: 18px; border-radius: 20px; background: var(--surface); }
+    .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .head strong { font-size: 17px; }
+    .head time { margin-left: auto; color: var(--muted); font-size: 13px; }
+    .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tag { padding: 3px 9px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 12.5px; font-weight: 700; }
+    .tag.warn { color: var(--up); } .tag.temp { color: var(--down); } .tag.ok { color: var(--ok); } .tag.ai { color: var(--brand); }
+    .memo { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--bg); font-size: 14px; white-space: pre-wrap; }
+    .meta { color: var(--muted); font-size: 13px; }
+    .meta a { color: var(--brand); }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .actions select { padding: 8px 10px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; }
+    .actions button { padding: 9px 16px; border: 0; border-radius: 12px; font: inherit; font-weight: 700; cursor: pointer; }
+    .approve { background: var(--brand); color: #fff; }
+    .reject { background: var(--bg); color: var(--ink); }
+    .note { color: var(--muted); font-size: 12.5px; }
+    #status { color: var(--up); font-weight: 700; }
+    .empty { padding: 40px 0; color: var(--muted); text-align: center; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>제보 정리</h1>
+  <p class="sub">AI가 먼저 정리했어요. 승인한 계단·턱·통행 불가 제보만 길 찾기에 반영돼요.</p>
+  <div class="filters" role="group" aria-label="보기">
+    <button type="button" data-filter="pending" aria-pressed="true">확인 전</button>
+    <button type="button" data-filter="approved" aria-pressed="false">승인</button>
+    <button type="button" data-filter="rejected" aria-pressed="false">거절</button>
+  </div>
+  <p id="status" role="alert"></p>
+  <div id="list"></div>
+</main>
+<script>
+const TYPE_LABEL = { stairs: "계단", curb: "턱", narrow: "좁은 보도", blocked: "지나갈 수 없음", construction: "공사", passed: "잘 지나감", etc: "기타" };
+const ROUTE_TYPES = ["stairs", "curb", "blocked", "construction"];
+const KIND_LABEL = { passed: "잘 지나갔어요", blocked: "못 지나갔어요", obstacle: "장애물이 있어요", construction: "공사 중이에요" };
+const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+let filter = "pending";
+let all = [];
+
+async function load() {
+  const res = await fetch("/api/reports");
+  if (!res.ok) { document.querySelector("#status").textContent = res.status === 403 ? "이 화면은 서버를 켠 노트북에서만 열 수 있어요." : "제보를 불러오지 못했어요."; return; }
+  all = await res.json();
+  render();
+}
+
+function render() {
+  const items = all.filter((r) => r.status === filter).sort((a, b) => b.created_at.localeCompare(a.created_at));
+  document.querySelectorAll("[data-filter]").forEach((b) => {
+    const n = all.filter((r) => r.status === b.dataset.filter).length;
+    b.textContent = `${b.textContent.split(" ")[0]} ${n}`;
+    b.setAttribute("aria-pressed", b.dataset.filter === filter);
+  });
+  document.querySelector("#list").innerHTML = items.length ? items.map(card).join("") : `<p class="empty">제보가 없어요.</p>`;
+}
+
+function card(r) {
+  const t = r.triage;
+  const tags = [
+    `<span class="tag ai">${t.by === "claude" ? "AI 정리" : "규칙 정리"}</span>`,
+    ROUTE_TYPES.includes(t.type) ? `<span class="tag ok">승인하면 길 찾기에 반영</span>` : "",
+    t.temporary ? `<span class="tag temp">임시 장애물</span>` : "",
+    t.needs_check ? `<span class="tag warn">꼭 확인</span>` : "",
+    t.place_mismatch ? `<span class="tag warn">메모 속 장소가 다를 수 있음</span>` : "",
+  ].join("");
+  const options = Object.entries(TYPE_LABEL).map(([k, v]) => `<option value="${k}" ${k === t.type ? "selected" : ""}>${v}</option>`).join("");
+  const map = `https://www.openstreetmap.org/?mlat=${r.lat}&mlon=${r.lon}#map=19/${r.lat}/${r.lon}`;
+  return `<article class="card" data-id="${esc(r.id)}">
+    <div class="head"><strong>${esc(t.summary)}</strong><time>${esc(r.created_at.replace("T", " ").slice(0, 16))}</time></div>
+    <div class="tags">${tags}</div>
+    ${r.memo ? `<p class="memo">${esc(r.memo)}</p>` : ""}
+    <p class="meta">고른 것: ${esc(KIND_LABEL[r.kind] ?? r.kind)}${r.obstacle ? ` · ${esc(TYPE_LABEL[r.obstacle] ?? r.obstacle)}` : ""} · ${esc({ stroller: "유아차", tourist: "캐리어" }[r.profile] ?? r.profile)} ·
+      <a href="${map}" target="_blank" rel="noopener">지도에서 위치 보기</a></p>
+    <div class="actions">
+      <label>종류 <select>${options}</select></label>
+      ${r.status !== "approved" ? `<button type="button" class="approve" data-status="approved">승인</button>` : ""}
+      ${r.status !== "rejected" ? `<button type="button" class="reject" data-status="rejected">거절</button>` : ""}
+      ${r.status !== "pending" ? `<button type="button" class="reject" data-status="pending">확인 전으로</button>` : ""}
+    </div>
+  </article>`;
+}
+
+document.querySelector(".filters").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-filter]");
+  if (b) { filter = b.dataset.filter; render(); }
+});
+
+document.querySelector("#list").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-status]");
+  if (!b) return;
+  const cardEl = b.closest(".card");
+  b.disabled = true;
+  const res = await fetch(`/api/reports/${cardEl.dataset.id}/review`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: b.dataset.status, type: cardEl.querySelector("select").value }),
+  });
+  if (!res.ok) { document.querySelector("#status").textContent = "저장하지 못했어요. 다시 눌러 주세요."; b.disabled = false; return; }
+  const updated = await res.json();
+  all = all.map((r) => (r.id === updated.id ? updated : r));
+  document.querySelector("#status").textContent = "";
+  render();
+});
+
+load();
+</script>
+</body>
+</html>

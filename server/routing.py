@@ -1,6 +1,7 @@
 """보행 도로망 + 장애물 + 경사 → 사용자 유형별 경로 계산."""
 import math
 import os
+import pickle
 from functools import lru_cache
 from pathlib import Path
 
@@ -8,8 +9,11 @@ import networkx as nx
 import osmnx as ox
 import pandas as pd
 import requests
+from scipy.spatial import cKDTree
 
+import reports
 import slope
+from area import BUSAN_BOUNDS, BUSAN_PLACE
 from profiles import GRADE_HARD, GRADE_SOFT, PROFILES
 
 DATA = Path(__file__).resolve().parent.parent / "data"
@@ -18,10 +22,12 @@ USE_SAMPLE_DATA = os.environ.get("USE_SAMPLE_DATA") == "1"
 DETECTIONS = DATA / ("sample" if USE_SAMPLE_DATA else "processed") / "detections.csv"
 OSM_STEPS = DATA / "processed" / "osm_steps.csv"
 
-# TODO: 조사 생활권이 정해지면 바꾸기 (지금은 초량동 근처 예시)
-CENTER = (35.117, 129.0375)
-RADIUS_M = 1000
-GRAPH_FILE = DATA / "processed" / f"walk_graph_{CENTER[0]}_{CENTER[1]}_{RADIUS_M}.graphml"
+# 서비스 지역: 부산광역시 전체 (area.py)
+GRAPH_FILE = DATA / "processed" / "walk_graph_busan.graphml"
+# 경사·장애물까지 계산한 도로망. 부산 전체는 계산이 오래 걸려서 한 번 만들면 저장해 둔다.
+# 도로망·DEM·탐지·OSM 계단 파일이 바뀌면 저절로 다시 만든다.
+READY_FILE = DATA / "processed" / "walk_graph_busan_ready.pkl"
+MAX_TRIP_M = 10_000     # 직선거리가 이보다 멀면 걸어갈 길로 보지 않는다
 # 서버가 바쁘면(502·504) 다음 서버로 넘어간다
 OVERPASS_SERVERS = [
     "https://overpass-api.de/api",
@@ -35,10 +41,9 @@ CLIMB_COST = 30.0       # 오르막 최소 경로: 1m 오르는 부담을 30m �
 
 
 def in_service_area(df):
-    """도로망을 받은 범위 안에 있는 행."""
-    dlat = RADIUS_M / 111_000
-    dlon = dlat / math.cos(math.radians(CENTER[0]))
-    return ((df["lat"] - CENTER[0]).abs() <= dlat) & ((df["lon"] - CENTER[1]).abs() <= dlon)
+    """부산 범위 안에 있는 행."""
+    west, south, east, north = BUSAN_BOUNDS
+    return df["lat"].between(south, north) & df["lon"].between(west, east)
 
 
 def load_detections():
@@ -86,7 +91,29 @@ def attach_obstacles(G, det):
         d["obstacles"] = []
         if "steps" in tag_values(d.get("highway")):
             d["obstacles"].append({"class": "stairs", "conf": 1.0, "source": "osm"})
-    use = det[det["conf"] >= MIN_CONF]
+    attach_points(G, det[det["conf"] >= MIN_CONF])
+    attach_points(G, approved_reports())
+
+
+def approved_reports():
+    """관리자가 승인한 제보 중 서비스 지역 안의 것."""
+    df = pd.DataFrame(reports.approved_obstacles(), columns=["class", "conf", "lat", "lon", "source"])
+    return df[in_service_area(df)] if not df.empty else df
+
+
+def refresh_reports():
+    """제보를 승인·거절한 뒤 부른다. 도로망을 다시 만들지 않고 제보 장애물만 바꾼다."""
+    refresh_reports_on(get_graph())
+
+
+def refresh_reports_on(G):
+    for *_, d in G.edges(keys=True, data=True):
+        d["obstacles"] = [ob for ob in d["obstacles"] if ob["source"] != "report"]
+    attach_points(G, approved_reports())
+
+
+def attach_points(G, use):
+    """점으로 된 장애물을 가장 가까운 길에 양방향으로 붙인다."""
     if use.empty:
         return
     nearest = ox.distance.nearest_edges(G, X=use["lon"].tolist(), Y=use["lat"].tolist())
@@ -103,7 +130,8 @@ def download_graph():
     for url in OVERPASS_SERVERS:
         ox.settings.overpass_url = url
         try:
-            return ox.graph_from_point(CENTER, dist=RADIUS_M, network_type="walk")
+            boundary = ox.geocode_to_gdf(BUSAN_PLACE).geometry.iloc[0]
+            return ox.graph_from_polygon(boundary, network_type="walk")
         except (requests.RequestException, ValueError) as e:
             print(f"도로망 받기 실패 ({url}): {str(e)[:80]}")
     raise RuntimeError("모든 Overpass 서버가 응답하지 않습니다. 몇 분 뒤 다시 실행하세요.")
@@ -119,13 +147,49 @@ def load_graph():
     return G
 
 
+def _ready_key():
+    """READY_FILE을 다시 만들어야 하는지 판단하는 값: 재료 파일들의 수정 시각."""
+    inputs = [GRAPH_FILE, DETECTIONS, slope.find_dem()]
+    return tuple((str(f), f.stat().st_mtime) for f in inputs if f and Path(f).exists())
+
+
 @lru_cache(maxsize=1)
 def get_graph():
-    """처음 한 번만 만들어 메모리에 둔다."""
+    """처음 한 번만 만들어 메모리에 둔다. 저장해 둔 계산 결과가 있으면 그걸 읽는다."""
+    key = _ready_key()
+    if READY_FILE.exists():
+        with open(READY_FILE, "rb") as f:
+            saved_key, G = pickle.load(f)
+        if saved_key == key:
+            refresh_reports_on(G)
+            return G
     G = load_graph()
     add_slope(G)
     attach_obstacles(G, load_detections())
+    with open(READY_FILE, "wb") as f:
+        pickle.dump((key, G), f, protocol=pickle.HIGHEST_PROTOCOL)
     return G
+
+
+@lru_cache(maxsize=1)
+def node_index():
+    """가장 가까운 길 찾기용 KD 트리. 경도는 위도에 맞춰 줄여서 거리를 맞춘다."""
+    G = get_graph()
+    ids = list(G.nodes)
+    scale = math.cos(math.radians(35.15))
+    tree = cKDTree([(G.nodes[n]["y"], G.nodes[n]["x"] * scale) for n in ids])
+    return tree, ids, scale
+
+
+def nearest_node(lat, lon):
+    tree, ids, scale = node_index()
+    return ids[tree.query((lat, lon * scale))[1]]
+
+
+def straight_m(a, b):
+    dy = (a[0] - b[0]) * 111_000
+    dx = (a[1] - b[1]) * 111_000 * math.cos(math.radians(a[0]))
+    return math.hypot(dx, dy)
 
 
 def grade_multiplier(grade, profile):
@@ -203,7 +267,7 @@ def summarize(G, route, profile, name, pick=shortest_edge):
     known = steep = steep_up = steep_down = uphill = downhill = distance = rise = 0.0
     elevation = [[0, 0.0, False]]   # [출발점부터 거리 m, 출발점 대비 높이 m, 가파른 구간 여부]
     path = [[G.nodes[route[0]]["y"], G.nodes[route[0]]["x"]]]
-    steep_lines = []                # 지도에 표시할 가파른 구간 [[위도, 경도], [위도, 경도]]
+    steep_lines = []                # 지도에 표시할 가파른 구간 {"line": [[위도, 경도], [위도, 경도]], "up": 오르막 여부}
     counts = {"stairs": 0, "curb": 0}
     estimated_count = blocked = 0
     for a, b in zip(route[:-1], route[1:]):
@@ -220,7 +284,7 @@ def summarize(G, route, profile, name, pick=shortest_edge):
         segments = d.get("segments") or []
         for (piece, grade), (p, q) in zip(segments, slope.segment_lines(coords, len(segments)) if segments else []):
             if abs(grade) > GRADE_SOFT:
-                steep_lines.append([[p[1], p[0]], [q[1], q[0]]])
+                steep_lines.append({"line": [[p[1], p[0]], [q[1], q[0]]], "up": grade > 0})
             known += piece
             max_grade = max(max_grade or 0.0, abs(grade))
             steep += piece if abs(grade) > GRADE_SOFT else 0.0
@@ -260,18 +324,29 @@ def summarize(G, route, profile, name, pick=shortest_edge):
     }
 
 
+class TooFar(ValueError):
+    pass
+
+
+def path_by(G, o, t, weight):
+    """양쪽에서 동시에 찾는 다익스트라. 부산 전체 도로망에서도 빠르다."""
+    return nx.bidirectional_dijkstra(G, o, t, weight=weight)[1]
+
+
 def find_routes(start, end, profile_key):
     """start, end = (위도, 경도). 최단 / 맞춤 / 오르막 최소 경로를 돌려준다.
     오르막 최소 경로는 앞의 두 경로보다 오르막이 실제로 짧을 때만 넣는다."""
+    if straight_m(start, end) > MAX_TRIP_M:
+        raise TooFar(f"걸어서 가기엔 너무 멀어요 (직선 {MAX_TRIP_M // 1000}km 이내만 안내해요)")
     G = get_graph()
     profile = PROFILES[profile_key]
-    o = ox.distance.nearest_nodes(G, X=start[1], Y=start[0])
-    t = ox.distance.nearest_nodes(G, X=end[1], Y=end[0])
+    o = nearest_node(*start)
+    t = nearest_node(*end)
 
-    shortest = nx.shortest_path(G, o, t, weight="length")
+    shortest = path_by(G, o, t, "length")
     routes = [summarize(G, shortest, profile, "최단 경로")]
     try:
-        easy = nx.shortest_path(G, o, t, weight=make_weight(profile))
+        easy = path_by(G, o, t, make_weight(profile))
     except nx.NetworkXNoPath:
         routes[0]["warnings"].append("계단·급경사·장애물을 피해 갈 수 있는 길이 없습니다 (우회 불가 – 주의 구간)")
         return routes
@@ -279,7 +354,7 @@ def find_routes(start, end, profile_key):
         routes[0]["warnings"].append("이 구간은 더 편한 우회 경로를 찾지 못했습니다")
     else:
         routes.append(summarize(G, easy, profile, f"{profile['label']} 맞춤 경로", cheapest_edge(profile)))
-    least_climb = nx.shortest_path(G, o, t, weight=make_weight(profile, CLIMB_COST))
+    least_climb = path_by(G, o, t, make_weight(profile, CLIMB_COST))
     if least_climb not in (shortest, easy):
         third = summarize(G, least_climb, profile, "오르막 최소 경로", cheapest_edge(profile, CLIMB_COST))
         if third["uphill_m"] is not None and third["uphill_m"] < min(r["uphill_m"] for r in routes):
@@ -296,7 +371,22 @@ def osm_stairs_nearby():
     return [{"class": "stairs", "conf": 1.0, "lat": r.lat, "lon": r.lon, "source": "osm"} for r in near.itertuples()]
 
 
+@lru_cache(maxsize=1)
+def stats():
+    """홈 화면 숫자: 지도에 반영한 계단 수와 경사를 계산한 길 수 (양방향은 한 번만 센다)."""
+    G = get_graph()
+    seen, stairs, sloped = set(), 0, 0
+    for u, v, d in G.edges(data=True):
+        key = (min(u, v), max(u, v), round(d["length"], 1))
+        if key in seen:
+            continue
+        seen.add(key)
+        stairs += "steps" in tag_values(d.get("highway"))
+        sloped += bool(d.get("segments"))
+    return {"stairs": stairs, "sloped_roads": sloped}
+
+
 def list_obstacles():
     det = load_detections()
     found = det[det["conf"] >= MIN_CONF][["class", "conf", "lat", "lon", "source"]].to_dict("records")
-    return osm_stairs_nearby() + found
+    return osm_stairs_nearby() + found + approved_reports().to_dict("records")

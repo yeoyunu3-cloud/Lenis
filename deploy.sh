@@ -11,6 +11,7 @@ if [ ! -x server/.venv/bin/python ]; then
   exit 1
 fi
 
+rm -f 배포_주소.txt               # 지난번 주소가 남아 있으면 지운다
 caffeinate -i -w $$ &           # 배포 중에는 노트북이 잠들지 않게 한다
 (cd server && exec .venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port $PORT --log-level warning) &
 SERVER=$!

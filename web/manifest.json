@@ -1,17 +1,32 @@
 {
-  "name": "편한길로",
-  "short_name": "편한길로",
+  "name": "Lenis",
+  "short_name": "Lenis",
   "description": "부산의 경사와 계단을 고려해 나에게 편한 길을 찾아 주는 서비스",
   "lang": "ko",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#EDF4F7",
-  "theme_color": "#0F5FA8",
+  "background_color": "#F2F4F6",
+  "theme_color": "#3182F6",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

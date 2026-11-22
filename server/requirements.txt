@@ -6,3 +6,4 @@ numpy
 pandas
 rasterio
 scikit-learn
+anthropic

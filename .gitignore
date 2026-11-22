@@ -16,3 +16,6 @@ remotion-skills/
 ai/runs/
 ai/학습_로그.txt
 ai/탐지_로그.txt
+
+# 따로 받은 외부 프로젝트 (자체 git 저장소)
+openmotion/
